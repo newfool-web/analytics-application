@@ -1,229 +1,238 @@
 # CausalFunnel Analytics
 
-Full-stack user analytics app for the CausalFunnel Full Stack Engineer assessment.
+Full-stack user analytics application with:
 
-A standalone `tracker.js` records page views and clicks on any webpage, the Express API stores events in MongoDB, and a React dashboard shows session journeys plus a click heatmap.
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Dashboard | React 19, Vite 6, Tailwind CSS v4 |
-| Tracking | Vanilla `tracker.js` (no framework) |
-| API | Node.js 22, Express 4, Mongoose 8 |
-| Database | MongoDB (Atlas or any MongoDB URI) |
-| Containers | Docker, Docker Compose, Nginx (frontend image) |
-
-**Runtime:** Node.js ≥ 18 (Docker images use Node 22). npm ≥ 9.
-
----
-
-## What the app does today
-
-1. Load a page that includes `tracker.js` (or open a demo route).
-2. The script creates or reuses a session ID in `localStorage`, posts a `page_view`, then posts a `click` for each click with `clientX` / `clientY`.
-3. `POST /api/events` validates the payload and writes to the `events` collection.
-4. The dashboard lists sessions (aggregated counts), shows chronological events per session, and plots clicks on a canvas sized for a 1920×1080 viewport.
-
-Demo pages are React routes (not a separate static `demo/` folder):
-
-| Route | Purpose |
-|---|---|
-| `/` | Analytics dashboard (Sessions + Heatmap) |
-| `/demo` | Landing demo |
-| `/demo/products` | Second URL for multi-page sessions |
-| `/demo/features` | Third URL for multi-page sessions |
-
-Each demo page injects `/tracker.js` via `useDemoTracker` and sends events to `VITE_API_BASE_URL`.
-
----
-
-## Project structure
-
-```
-.
-├── client/                 # Vite + React dashboard and demo routes
-│   ├── public/tracker.js   # Embeddable tracking script
-│   ├── src/
-│   │   ├── App.jsx         # Dashboard vs /demo* routing
-│   │   ├── components/     # Sidebar, sessions, heatmap, demo pages
-│   │   └── services/api.js
-│   ├── Dockerfile          # Multi-stage: Vite build → Nginx
-│   └── nginx.conf          # SPA fallback; tracker.js served as a file
-├── server/                 # Express API
-│   ├── src/
-│   │   ├── config/         # env + MongoDB
-│   │   ├── controllers/
-│   │   ├── middleware/     # validation + error handler
-│   │   ├── models/Event.js
-│   │   ├── routes/
-│   │   ├── app.js
-│   │   └── server.js
-│   └── Dockerfile
-├── docker-compose.yml      # API on :5000, dashboard on :8080
-├── package.json            # convenience scripts (Windows npm.cmd)
-└── README.md
-```
-
-There is **no** automated test suite in this repo. There is **no** local MongoDB container; the API always uses `MONGODB_URI` (typically Atlas).
-
----
+- A React dashboard for sessions and click heatmaps.
+- A standalone `tracker.js` script for collecting page views and clicks.
+- An Express API for event validation and storage.
+- MongoDB persistence through Mongoose.
+- Docker Compose support for development.
+- Separate Vercel deployments for the frontend and serverless API.
 
 ## Setup steps
 
-### 1. Prerequisites
+### Prerequisites
 
-- Node.js 18+ and npm
 - Git
-- A MongoDB connection string (Atlas M0 is enough)
-- Docker Desktop only if you want the Compose stack
+- Docker Desktop with Docker Compose
+- A MongoDB Atlas cluster, or another reachable MongoDB deployment
 
-### 2. MongoDB
+The application does not start a local MongoDB container. The API always connects through `MONGODB_URI`.
 
-1. Create a cluster (Atlas free tier is fine).
+### 1. Configure MongoDB
+
+1. Create a MongoDB Atlas cluster.
 2. Create a database user.
-3. Allow your IP (or `0.0.0.0/0` for local/dev).
-4. Copy the URI and include a database name, for example:
-
-```
-mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/causalfunnel_analytics?retryWrites=true&w=majority
-```
-
-Keep this in `server/.env`. Do not commit `.env` files (they are gitignored).
-
-### 3. Environment files
-
-**`server/.env`**
-
-| Variable | Required | Default | Role |
-|---|---|---|---|
-| `MONGODB_URI` | Yes | — | MongoDB connection string |
-| `PORT` | No | `5000` | API listen port |
-| `CLIENT_ORIGIN` | No | `http://localhost:5173` | Comma-separated origins (see trade-offs) |
-| `NODE_ENV` | No | `development` | `development` includes error messages in 500s |
-
-**`client/.env`**
-
-| Variable | Required | Default | Role |
-|---|---|---|---|
-| `VITE_API_BASE_URL` | No | `http://localhost:5000/api` | Browser-facing API base (baked in at Vite build time) |
+3. Create or select the `causalfunnel_analytics` database.
+4. Allow the machine running Docker to connect to the cluster.
+5. Copy the MongoDB connection string.
 
 Example:
 
+```text
+mongodb+srv://USERNAME:PASSWORD@cluster.mongodb.net/causalfunnel_analytics?retryWrites=true&w=majority
+```
+
+### 2. Configure environment variables
+
+Create `server/.env` for the API:
+
 ```env
-# server/.env
 PORT=5000
-MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/causalfunnel_analytics?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@cluster.mongodb.net/causalfunnel_analytics?retryWrites=true&w=majority
 CLIENT_ORIGIN=http://localhost:5173,http://localhost:8080
 NODE_ENV=development
 ```
 
+Create `client/.env` for local Vite development:
+
 ```env
-# client/.env
 VITE_API_BASE_URL=http://localhost:5000/api
 ```
 
-`VITE_*` values are public. Never put the Mongo URI in the frontend env.
+The client environment file contains only `VITE_API_BASE_URL`; that is expected. The frontend only needs the public API URL. Do not put `MONGODB_URI` in the client environment.
 
-### 4. Local development (no Docker)
+Docker Compose reads the API variables from `server/.env`. Its frontend build argument defaults to `http://localhost:5000/api`, so a root `.env` file is not required for the current Docker setup. You may create an optional root `.env` only when you need to override the Compose defaults:
 
-From the repo root:
-
-```bash
-npm run install:all
+```env
+VITE_API_BASE_URL=http://localhost:5000/api
+CLIENT_ORIGIN=http://localhost:8080
 ```
 
-Or install each app:
+Never commit `.env` files. `VITE_*` variables are public and are embedded into the frontend at build time.
 
-```bash
-cd server && npm install
-cd ../client && npm install
-```
+### 3. Development with Docker
 
-Start the API:
+From the repository root, build and start both containers:
 
-```bash
-cd server
-npm run dev
-# http://localhost:5000  — health: http://localhost:5000/api/health
-```
-
-Start the dashboard (second terminal):
-
-```bash
-cd client
-npm run dev
-# http://localhost:5173
-```
-
-From the root you can also run `npm run dev:server` and `npm run dev:client` (these wrappers use `npm.cmd`, which is intended for Windows).
-
-Then:
-
-1. Open [http://localhost:5173/demo](http://localhost:5173/demo) and click around; also visit `/demo/products` and `/demo/features`.
-2. Open [http://localhost:5173](http://localhost:5173) → **Sessions** for the journey, **Heatmap** for click dots.
-3. Confirm [http://localhost:5000/api/health](http://localhost:5000/api/health) returns `{ "status": "ok", "db": "connected" }`.
-
-### 5. Docker Compose
-
-Compose starts **only** the API and the Nginx-served frontend. MongoDB stays on Atlas (or whatever URI is in `server/.env`).
-
-```bash
+```powershell
 docker compose up --build -d
+```
+
+Check the running services:
+
+```powershell
 docker compose ps
 docker compose logs -f
-docker compose down
 ```
+
+Development URLs:
 
 | Service | URL |
 |---|---|
 | Dashboard | http://localhost:8080 |
-| Demo | http://localhost:8080/demo |
-| Tracker | http://localhost:8080/tracker.js |
+| Demo landing page | http://localhost:8080/demo |
+| Demo products page | http://localhost:8080/demo/products |
+| Demo features page | http://localhost:8080/demo/features |
+| Tracker script | http://localhost:8080/tracker.js |
 | API | http://localhost:5000 |
-| Health | http://localhost:5000/api/health |
+| API health | http://localhost:5000/api/health |
 
-The client image builds with `VITE_API_BASE_URL` (default `http://localhost:5000/api`). That URL must be reachable **from the browser**, not `http://server:5000`. Compose waits until the API healthcheck passes before starting Nginx.
+Open `http://localhost:8080/demo`, navigate through the demo pages, and click several elements. Then open the dashboard at `http://localhost:8080` and check **Sessions** and **Heatmap**.
 
-### 6. Embed the tracker on another page
+Stop the containers:
 
-```html
-<script
-  src="http://localhost:5173/tracker.js"
-  data-api-url="http://localhost:5000/api"
-  defer
-></script>
+```powershell
+docker compose down
 ```
 
-In Docker, use `http://localhost:8080/tracker.js` with the same `data-api-url`.
+The Compose stack contains:
 
-The script:
+- `server`: Node.js API on port `5000`.
+- `client`: Vite production build served by Nginx on port `8080`.
+- MongoDB: external MongoDB Atlas connection.
 
-- Requires `data-api-url` (otherwise it logs a warning and does nothing)
-- Stores `causalfunnel_session_id` in `localStorage` (`crypto.randomUUID()` with a fallback)
-- POSTs JSON to `{data-api-url}/events` with `fetch` + `keepalive`
-- Listens for clicks in the capture phase
-- Strips URL hashes before sending `page_url`
-- Never throws into the host page
+### 4. Production deployment on Vercel
 
----
+The production deployment uses two Vercel projects:
+
+1. `client` as the frontend project.
+2. `server` as the serverless API project.
+
+#### API project
+
+Create a Vercel project with:
+
+```text
+Root Directory: server
+Framework Preset: Other
+Build Command: npm install
+Output Directory: leave empty
+```
+
+The API entry point is `server/api/index.js`. It connects to MongoDB and forwards requests to the Express app in `server/src/app.js`.
+
+Set these environment variables in the API Vercel project:
+
+```env
+MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@cluster.mongodb.net/causalfunnel_analytics?retryWrites=true&w=majority
+NODE_ENV=production
+CLIENT_ORIGIN=https://analytics-application-client.vercel.app
+```
+
+Do not set `PORT` on Vercel.
+
+After deployment, verify:
+
+```text
+https://analytics-application-api.vercel.app/api/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "db": "connected"
+}
+```
+
+#### Frontend project
+
+Create a second Vercel project with:
+
+```text
+Root Directory: client
+Framework Preset: Vite
+Build Command: npm run build
+Output Directory: dist
+```
+
+Set this environment variable in the frontend Vercel project:
+
+```env
+VITE_API_BASE_URL=https://analytics-application-api.vercel.app/api
+```
+
+Redeploy the frontend whenever `VITE_API_BASE_URL` changes because Vite embeds it during the build.
+
+Production URLs:
+
+| Page | URL |
+|---|---|
+| Dashboard | https://analytics-application-client.vercel.app/ |
+| Demo landing page | https://analytics-application-client.vercel.app/demo |
+| Demo products page | https://analytics-application-client.vercel.app/demo/products |
+| Demo features page | https://analytics-application-client.vercel.app/demo/features |
+| Tracker script | https://analytics-application-client.vercel.app/tracker.js |
+| API health | https://analytics-application-api.vercel.app/api/health |
+
+The frontend uses `client/vercel.json` to rewrite React routes to `index.html`, so direct navigation to `/demo`, `/demo/products`, and `/demo/features` works.
+
+### 5. Embed the tracker
+
+Use the tracker on another website with:
+
+```text
+&lt;script
+  src="https://analytics-application-client.vercel.app/tracker.js"
+  data-api-url="https://analytics-application-api.vercel.app/api"
+  defer
+&gt;&lt;/script&gt;
+```
+
+For the Docker development environment:
+
+```text
+&lt;script
+  src="http://localhost:8080/tracker.js"
+  data-api-url="http://localhost:5000/api"
+  defer
+&gt;&lt;/script&gt;
+```
+
+The script requires `data-api-url`. It stores a session identifier in `localStorage`, sends a `page_view`, sends click events, and removes URL hash fragments before storing page URLs.
+
+## Tech stack
+
+| Area | Technology |
+|---|---|
+| Frontend | React 19 |
+| Frontend build | Vite 6 |
+| Styling | Tailwind CSS v4 |
+| Tracker | Vanilla JavaScript |
+| Backend | Node.js 22, Express 4 |
+| Database access | Mongoose 8 |
+| Database | MongoDB Atlas |
+| Development deployment | Docker, Docker Compose |
+| Frontend web server | Nginx in the client image |
+| Production frontend | Vercel |
+| Production API | Vercel Node.js serverless function |
 
 ## API
 
-All routes are under `/api`. JSON body limit is 100kb.
+All API routes are prefixed with `/api`.
 
-| Method | Path | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/events` | Store one event (validated) |
-| `GET` | `/sessions` | Sessions with `total_events`, `first_seen`, `last_seen` (newest activity first) |
-| `GET` | `/sessions/:sessionId/events` | Events for one session, chronological |
-| `GET` | `/heatmap/pages` | Distinct `page_url` values that have clicks |
-| `GET` | `/heatmap/clicks?pageUrl=` | Click points for one page (URL-encoded) |
-| `GET` | `/health` | `{ status, db }` — `200` connected, `503` disconnected |
+| `POST` | `/api/events` | Validate and store one event |
+| `GET` | `/api/sessions` | Return sessions ordered by recent activity |
+| `GET` | `/api/sessions/:sessionId/events` | Return events for one session |
+| `GET` | `/api/heatmap/pages` | Return pages with recorded clicks |
+| `GET` | `/api/heatmap/clicks?pageUrl=` | Return click points for a page |
+| `GET` | `/api/health` | Return API and MongoDB connection status |
 
-**`POST /api/events` body**
+Example event:
 
 ```json
 {
@@ -236,65 +245,41 @@ All routes are under `/api`. JSON body limit is 100kb.
 }
 ```
 
-Validation:
+## Assumptions or trade-offs
 
-- `session_id`: non-empty string
-- `event_type`: `page_view` or `click`
-- `page_url`: valid absolute URL
-- `timestamp`: parseable date
-- clicks: finite `click_x` and `click_y`
-- page views: `click_x` / `click_y` omitted or `null`
+### Tracking and heatmap
 
-Success: `201` `{ "success": true, "event": { ... } }`.
+- Coordinates use `clientX` and `clientY`, so they are viewport-relative.
+- The viewport dimensions are not stored. The heatmap visualisation assumes a `1920x1080` viewport and clamps points to the display bounds.
+- A session is identified by `localStorage`. Clearing storage, using another browser, or using another origin creates a new session.
+- If `localStorage` is unavailable, the tracker generates a non-persistent identifier.
+- Events use `fetch` with `keepalive`; delivery failures do not break the host website.
+- URL hash fragments are removed from `page_url`.
 
-### MongoDB `events` collection
+### Backend and data
 
-| Field | Type | Notes |
-|---|---|---|
-| `session_id` | String | required |
-| `event_type` | String | `page_view` \| `click` |
-| `page_url` | String | required |
-| `timestamp` | Date | required |
-| `click_x` / `click_y` | Number or null | null for page views |
+- There is no authentication or user-management system; this keeps the assessment application simple but is not suitable for protected analytics data.
+- Event ingestion is intentionally available from any origin so the tracker can be embedded on third-party websites.
+- Dashboard data is read from one MongoDB `events` collection; this is simple to understand and sufficient for the current application size.
+- There is no pagination for the session list, which keeps the UI and API straightforward for a small dataset.
+- MongoDB connections are cached for warm Vercel serverless invocations to reduce unnecessary connection creation.
 
-Indexes: `{ session_id: 1, timestamp: 1 }`, `{ event_type: 1, page_url: 1 }`, `{ session_id: 1 }`.
+### Deployment
 
----
+- Docker Compose is the development and self-hosted deployment path; MongoDB remains external.
+- Vercel production uses separate frontend and API projects because the API runs as a serverless function.
+- Vercel does not provide one fixed outbound IP for serverless functions. MongoDB Atlas network access must allow Vercel connections; use the narrowest practical policy for the deployment.
+- `VITE_API_BASE_URL` is public and build-time only. It must contain the deployed API URL, including `/api`.
+- The repository has no automated test suite. Verification is performed through the API health endpoint, demo navigation, event collection, Sessions, and Heatmap views.
+- The frontend and API currently use separate Vercel domains. Custom domains can be added later, but both `VITE_API_BASE_URL` and `CLIENT_ORIGIN` must then be updated and redeployed.
 
-## Assumptions and trade-offs
+## Verification checklist
 
-**Tracking and heatmap**
-
-- Coordinates are viewport-relative (`clientX` / `clientY`), not document coordinates. Scrolled content is not remapped.
-- Viewport size is **not** stored (the assignment schema does not include it). The heatmap assumes **1920×1080** and clamps dots to 0–100%. Different screens will not line up pixel-perfectly.
-- Session ID lives in `localStorage` until the origin’s storage is cleared. Incognito, another browser, or another origin is a new session. If storage is blocked, a non-persistent UUID is used for that page load only.
-- Delivery uses `fetch` with `keepalive` rather than `sendBeacon`, so JSON `Content-Type` works without extra CORS preflight surprises. Failures are swallowed so the host page never breaks.
-- Hash fragments are stripped from `page_url`, so in-page hash navigation does not create extra pages.
-
-**Backend**
-
-- No authentication. Dashboard reads are open; `POST /events` is intentionally usable from any origin so the script can sit on third-party sites.
-- `CLIENT_ORIGIN` is parsed, but CORS currently **allows all origins** for the same reason. Tightening GET routes later would be a production hardening step.
-- One `events` collection; session lists are computed with `$group`. Fine for assessment volume; at scale you would paginate and/or pre-aggregate.
-- Session list has no pagination.
-- JSON payloads are capped at 100kb.
-- Failed Mongo connect exits the process (`process.exit(1)`). Health reports `503` only after a later disconnect.
-
-**Frontend and ops**
-
-- Demo is in-app routes, not a standalone HTML site, so you get multiple distinct `page_url` values without extra hosting.
-- Vite embeds `VITE_API_BASE_URL` at **build** time. Changing the API URL for Docker/prod means rebuilding the client image.
-- Compose does not run Mongo locally; operators must supply Atlas (or another URI).
-- Root `dev:*` / `install:all` scripts call `npm.cmd` (Windows). On macOS/Linux, use `cd server && npm …` / `cd client && npm …`.
-- No automated tests in the current tree; verification is manual (demo clicks → dashboard).
-- Production-style split (API on Render, dashboard on Vercel) still works: set `MONGODB_URI`, `CLIENT_ORIGIN`, and `VITE_API_BASE_URL`, allow Atlas network access, and rebuild the frontend after changing the API URL. Free-tier hosts may sleep; Atlas M0 is connection-limited.
-
----
-
-## Quick verification
-
-1. API health returns `db: "connected"`.
-2. Demo routes record page views and clicks.
-3. Dashboard Sessions shows a session with matching event counts and ordered events.
-4. Heatmap lists those demo URLs and draws click dots.
-5. Optional: `docker compose up --build -d` and repeat on ports `8080` / `5000`.
+1. Open the API health URL and confirm `"status": "ok"` and `"db": "connected"`.
+2. Open the production demo page.
+3. Visit `/demo/products` and `/demo/features`.
+4. Click several elements.
+5. Open the production dashboard.
+6. Confirm the new session appears in **Sessions**.
+7. Confirm click data appears in **Heatmap**.
+8. Confirm the tracker is available at `/tracker.js`.
