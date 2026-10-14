@@ -50,6 +50,14 @@ export default function Sidebar({ activeView, onViewChange }) {
             </button>
           );
         })}
+
+        <a
+          href="/demo"
+          className="flex items-center px-4 py-3 text-sm font-medium rounded-lg text-surface-300 hover:bg-surface-800 hover:text-white transition-colors duration-150"
+        >
+          <span className="mr-3" aria-hidden="true">↗</span>
+          <span>View Demo</span>
+        </a>
       </nav>
 
       
